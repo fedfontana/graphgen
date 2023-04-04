@@ -3,7 +3,7 @@ use std::{collections::HashSet, error::Error, io::Read};
 
 pub struct WikipediaScraper<'a> {
     url: &'a str,
-    depth: u8,
+    depth: u64,
     links: HashSet<(String, String)>,
     pages: HashSet<String>,
 }
@@ -22,7 +22,7 @@ fn get_complete_url(url: &str) -> Option<String> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u8) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64) -> WikipediaScraper<'a> {
         if depth == 0 {
             panic!("Depth must be greater than 0");
         }
@@ -39,7 +39,7 @@ impl<'a> WikipediaScraper<'a> {
         self.scrape_with_depth(self.url, self.depth)
     }    
 
-    fn scrape_with_depth(&mut self, start_url: impl AsRef<str>, depth: u8) -> Result<(), Box<dyn Error>> {
+    fn scrape_with_depth(&mut self, start_url: impl AsRef<str>, depth: u64) -> Result<(), Box<dyn Error>> {
         if depth == 0 {
             return Ok(());
         }
