@@ -1,108 +1,18 @@
-use reqwest::blocking::get;
-use std::{collections::HashSet, error::Error, io::Read};
+mod scraper;
+use std::error::Error;
 
-struct WikipediaScraper<'a> {
-    url: &'a str,
-    depth: u8,
-    links: HashSet<(String, String)>,
-    nodes: HashSet<String>,
-}
-
-//TODO filter out images/catergories/other links that don't lead to a page
-
-//TODO some links redirect to the same page, so we need to check for that before adding them to the set
-//TODO maybe build a map of links that redirect to the same page and check against that instead 
-//TODO of making requests each time
-fn get_complete_url(url: &str) -> Option<String> {
-    // All of the internal links start with a slash
-    if url.starts_with('/') {
-        return Some("https://en.wikipedia.org".to_owned() + url);
-    } 
-    None
-}
-
-impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u8) -> WikipediaScraper<'a> {
-        if depth == 0 {
-            panic!("Depth must be greater than 0");
-        }
-
-        WikipediaScraper {
-            url,
-            depth,
-            links: HashSet::new(),
-            nodes: HashSet::new(),
-        }
-    }
-
-    pub fn scrape(&mut self) -> Result<(), Box<dyn Error>> {
-        self.scrape_with_depth(self.url, self.depth)
-    }    
-
-    fn scrape_with_depth(&mut self, start_url: impl AsRef<str>, depth: u8) -> Result<(), Box<dyn Error>> {
-        if depth == 0 {
-            return Ok(());
-        }
-
-        let page_content = get_page_content(self.url)?;
-        let anchor_list = get_anchor_list(&page_content)?;
-
-        for anchor in anchor_list {
-            self.links.insert((start_url.as_ref().to_string().clone(), anchor.clone()));
-            // if we've already visited this node, skip it
-            if !self.nodes.contains(&*anchor) {
-                self.nodes.insert(anchor.clone());
-                self.scrape_with_depth(anchor, depth-1)?;
-            }
-        }
-        Ok(())
-    }
-
-}
-
-fn get_page_content(url: impl AsRef<str>) -> Result<String, Box<dyn Error>> {
-    let mut resp = get(url.as_ref())?;
-    let mut content = String::new();
-    resp.read_to_string(&mut content)?;
-    Ok(content)
-}
-
-fn get_anchor_list (page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let document = scraper::Html::parse_document(page_content);
-    
-    //TODO use errorkind and just log if we can't find the content (right now it is stopping the program)
-    let content_selector = scraper::Selector::parse("#bodyContent")?;
-    let content = document.select(&content_selector).next().map_or_else(
-        || Err("No content found"),
-        |content| Ok(content)
-    )?;
-
-    let anchor_selector = scraper::Selector::parse("a")?;
-
-    let anchors = content.select(&anchor_selector);
-    let mut anchor_list = Vec::new();
-    for anchor in anchors {
-        if let Some(href) = anchor.value().attr("href") {
-            if let Some(url) = get_complete_url(href) {
-                anchor_list.push(url);
-            }
-        }
-    }
-
-    Ok(anchor_list)
-}
-
+use crate::scraper::WikipediaScraper;
 
 fn main() -> Result<(), Box<dyn Error>> {
 
     let mut scraper = WikipediaScraper::new(
         "https://en.wikipedia.org/wiki/Crocodile", 
-        10
+        3
     );
     scraper.scrape()?;
     
-    scraper.links.iter().for_each(|link| println!("{:?}", link));
-    // scraper.nodes.iter().for_each(|node| println!("{:?}", node));
+    scraper.links().for_each(|link| println!("{:?}", link));
+    // scraper.pages().for_each(|node| println!("{:?}", node));
 
     Ok(())
 }
