@@ -1,11 +1,17 @@
 use reqwest::blocking::get;
-use std::{collections::HashSet, error::Error, io::{Read, Write}};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    io::{Read, Write},
+};
+
+type ID = u64;
 
 pub struct WikipediaScraper<'a> {
     url: &'a str,
     depth: u64,
-    links: HashSet<(String, String)>,
-    pages: HashSet<String>,
+    links: HashSet<(ID, ID)>,
+    pages: HashMap<String, ID>,
 }
 
 //TODO filter out images/catergories/other links that don't lead to a page
@@ -31,7 +37,7 @@ impl<'a> WikipediaScraper<'a> {
             url,
             depth,
             links: HashSet::new(),
-            pages: HashSet::new(),
+            pages: HashMap::new(),
         }
     }
 
@@ -51,32 +57,57 @@ impl<'a> WikipediaScraper<'a> {
         let page_content = get_page_content(self.url)?;
         let anchor_list = get_anchor_list(&page_content)?;
 
+        // TODO: filter anchor list based on some heuristic (that should be encapsulated in a function)
         for anchor in anchor_list {
-            self.links
-                .insert((start_url.as_ref().to_string().clone(), anchor.clone()));
-            // if we've already visited this node, skip it
-            if !self.pages.contains(&*anchor) {
-                self.pages.insert(anchor.clone());
+            let start_url_id = self.pages.len() as ID;
+            self.pages
+                .insert(start_url.as_ref().to_string(), start_url_id);
+
+            // If the link has already been visited, just add the current link to the links set
+            if let Some(anchor_id) = self.pages.get(&anchor) {
+                self.links.insert((start_url_id, *anchor_id));
+            } else {
+                // Else generate the anchor id and add it to the pages
+                let anchor_id = self.pages.len() as ID;
+                self.pages.insert(anchor.clone(), anchor_id);
+
+                // Add the link
+                self.links.insert((start_url_id, anchor_id));
+
+                // And then scrape that page recursively
                 self.scrape_with_depth(anchor, depth - 1)?;
             }
         }
+
         Ok(())
     }
 
     pub fn save_to_file(&self, output_file: impl AsRef<str>) -> Result<(), Box<dyn Error>> {
-        let mut file = std::fs::File::create(output_file.as_ref())?;
-        file.write("source,target\n".as_bytes())?;
-        for link in self.links() {
-            file.write_all(format!("{},{}\n", link.0, link.1).as_bytes())?;
+        let edges_file_path = format!("{}_edges.csv", output_file.as_ref());
+        let nodes_file_path = format!("{}_nodes.csv", output_file.as_ref());
+
+        let mut edges_file = std::fs::File::create(edges_file_path)?;
+        let mut nodes_file = std::fs::File::create(nodes_file_path)?;
+
+        edges_file.write_all("source,target\n".as_bytes())?;
+        nodes_file.write_all("node_id,url\n".as_bytes())?;
+
+        for page in self.pages() {
+            nodes_file.write_all(format!("{},\"{}\"\n", page.1, page.0).as_bytes())?;
         }
+
+        for link in self.links() {
+            edges_file.write_all(format!("{},{}\n", link.0, link.1).as_bytes())?;
+        }
+
         Ok(())
     }
 
-    pub fn links(&self) -> impl Iterator<Item = &(String, String)> {
+    pub fn links(&self) -> impl Iterator<Item = &(ID, ID)> {
         self.links.iter()
     }
 
-    pub fn pages(&self) -> impl Iterator<Item = &String> {
+    pub fn pages(&self) -> impl Iterator<Item = (&String, &ID)> {
         self.pages.iter()
     }
 }
