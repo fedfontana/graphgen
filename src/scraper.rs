@@ -57,22 +57,38 @@ impl<'a> WikipediaScraper<'a> {
         let page_content = get_page_content(self.url)?;
         let anchor_list = get_anchor_list(&page_content)?;
 
+        if anchor_list.is_empty() {
+            return Ok(());
+        }
+
+        // If the page has already been visited, just add the links to the links set by recovering its id
+        // else generate a new id and add it to the pages before proceeding to process the links
+        let start_url_id = if let Some(start_url_id) = self.pages.get(start_url.as_ref()) {
+            *start_url_id
+        } else {
+            let new_id = self.pages.len() as ID;
+            self.pages.insert(start_url.as_ref().to_string(), new_id);
+            new_id
+        };
+
         // TODO: filter anchor list based on some heuristic (that should be encapsulated in a function)
         for anchor in anchor_list {
-            let start_url_id = self.pages.len() as ID;
-            self.pages
-                .insert(start_url.as_ref().to_string(), start_url_id);
-
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = self.pages.get(&anchor) {
                 self.links.insert((start_url_id, *anchor_id));
             } else {
                 // Else generate the anchor id and add it to the pages
                 let anchor_id = self.pages.len() as ID;
-                self.pages.insert(anchor.clone(), anchor_id);
+                assert!(
+                    self.pages.insert(anchor.clone(), anchor_id).is_none(),
+                    "Should not be adding a page that already exists"
+                );
 
                 // Add the link
-                self.links.insert((start_url_id, anchor_id));
+                assert!(
+                    self.links.insert((start_url_id, anchor_id)),
+                    "Should not be adding a link that already exists"
+                );
 
                 // And then scrape that page recursively
                 self.scrape_with_depth(anchor, depth - 1)?;
@@ -132,6 +148,8 @@ fn get_anchor_list(page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let anchor_selector = scraper::Selector::parse("a")?;
 
     let anchors = content.select(&anchor_selector);
+    // let anchors = document.select(&anchor_selector);
+
     let mut anchor_list = Vec::new();
     for anchor in anchors {
         if let Some(href) = anchor.value().attr("href") {
