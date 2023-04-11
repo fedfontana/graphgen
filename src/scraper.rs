@@ -21,6 +21,16 @@ pub struct WikipediaScraper<'a> {
 //TODO of making requests each time
 fn get_complete_url(url: &str) -> Option<String> {
     // All of the internal links start with a slash
+
+    if url.contains(':') {
+        return None;
+    }
+
+    if url.starts_with("/w") && !url.starts_with("/wiki") {
+        return None;
+    }
+
+    
     if url.starts_with('/') {
         return Some("https://en.wikipedia.org".to_owned() + url);
     }
@@ -54,7 +64,9 @@ impl<'a> WikipediaScraper<'a> {
             return Ok(());
         }
 
-        let page_content = get_page_content(self.url)?;
+        eprintln!("Scraping {} with depth: {}", start_url.as_ref(), depth);
+
+        let page_content = get_page_content(start_url.as_ref())?;
         let anchor_list = get_anchor_list(&page_content)?;
 
         if anchor_list.is_empty() {
@@ -142,22 +154,26 @@ fn get_anchor_list(page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
     let content_selector = scraper::Selector::parse("#bodyContent")?;
     let content = document
         .select(&content_selector)
-        .next()
-        .map_or_else(|| Err("No content found"), |content| Ok(content))?;
-
-    let anchor_selector = scraper::Selector::parse("a")?;
-
-    let anchors = content.select(&anchor_selector);
-    // let anchors = document.select(&anchor_selector);
-
-    let mut anchor_list = Vec::new();
-    for anchor in anchors {
-        if let Some(href) = anchor.value().attr("href") {
-            if let Some(url) = get_complete_url(href) {
-                anchor_list.push(url);
+        .next();
+    // .map_or_else(|| Err("No content found"), |content| Ok(content))?;
+    if let Some(content) = content {        
+        let anchor_selector = scraper::Selector::parse("a")?;
+        
+        let anchors = content.select(&anchor_selector);
+        // let anchors = document.select(&anchor_selector);
+        
+        let mut anchor_list = Vec::new();
+        for anchor in anchors {
+            if let Some(href) = anchor.value().attr("href") {
+                if let Some(url) = get_complete_url(href) {
+                    anchor_list.push(url);
+                }
             }
         }
+        Ok(anchor_list)
+    } else {
+        eprintln!("No content found for a page");
+        Ok(Vec::new())
     }
 
-    Ok(anchor_list)
 }
