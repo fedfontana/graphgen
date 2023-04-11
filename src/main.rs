@@ -12,6 +12,10 @@ struct Args {
     /// Url to scrape
     url: String,
 
+    /// Keywords to search for in the pages
+    #[clap(short, long)]
+    keywords: Option<Vec<String>>,
+
     /// Depth of the scrape
     #[clap(short, long, default_value_t = 5, value_parser=clap::value_parser!(u64).range(1..))]
     depth: u64,
@@ -38,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut scraper = WikipediaScraper::new(&args.url, args.depth);
+    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.keywords);
     scraper.scrape()?;
 
     

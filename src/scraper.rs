@@ -12,6 +12,7 @@ pub struct WikipediaScraper<'a> {
     depth: u64,
     links: HashSet<(ID, ID)>,
     pages: HashMap<String, ID>,
+    keywords: Option<Vec<String>>,
 }
 
 //TODO filter out images/catergories/other links that don't lead to a page
@@ -30,15 +31,19 @@ fn get_complete_url(url: &str) -> Option<String> {
         return None;
     }
 
-    
-    if url.starts_with('/') {
+    if !url.starts_with('/') {
+        return None;
+    }
+
+    if let Some((url, _tag)) = url.split_once("#") {
         return Some("https://en.wikipedia.org".to_owned() + url);
     }
-    None
+
+    return Some("https://en.wikipedia.org".to_owned() + url);
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64, keywords: Option<Vec<String>>) -> WikipediaScraper<'a> {
         if depth == 0 {
             panic!("Depth must be greater than 0");
         }
@@ -48,6 +53,7 @@ impl<'a> WikipediaScraper<'a> {
             depth,
             links: HashSet::new(),
             pages: HashMap::new(),
+            keywords,
         }
     }
 
@@ -66,7 +72,7 @@ impl<'a> WikipediaScraper<'a> {
 
         eprintln!("Scraping {} with depth: {}", start_url.as_ref(), depth);
 
-        let page_content = get_page_content(start_url.as_ref())?;
+        let page_content = self.get_page_content(start_url.as_ref())?;
         let anchor_list = get_anchor_list(&page_content)?;
 
         if anchor_list.is_empty() {
@@ -138,13 +144,21 @@ impl<'a> WikipediaScraper<'a> {
     pub fn pages(&self) -> impl Iterator<Item = (&String, &ID)> {
         self.pages.iter()
     }
-}
 
-fn get_page_content(url: impl AsRef<str>) -> Result<String, Box<dyn Error>> {
-    let mut resp = get(url.as_ref())?;
-    let mut content = String::new();
-    resp.read_to_string(&mut content)?;
-    Ok(content)
+    fn get_page_content(&self, url: impl AsRef<str>) -> Result<String, Box<dyn Error>> {
+        let mut resp = get(url.as_ref())?;
+        let mut content = String::new();
+        resp.read_to_string(&mut content)?;
+    
+        if let Some(keywords) = &self.keywords { 
+            if keywords.iter().any(|keyword| content.contains(keyword)) {
+                return Ok(content);
+            } else {
+                return Ok(String::new());
+            }
+        }
+        Ok(content)
+    }
 }
 
 fn get_anchor_list(page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
@@ -175,5 +189,4 @@ fn get_anchor_list(page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
         eprintln!("No content found for a page");
         Ok(Vec::new())
     }
-
 }
