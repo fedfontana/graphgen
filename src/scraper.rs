@@ -24,7 +24,8 @@ fn get_complete_url(url: &str) -> Option<String> {
     // All of the internal links start with a slash
 
     if !url.starts_with('/') {
-        return None;
+        return Some(url.to_owned());
+        // return None;
     }
 
     if url.contains(':') {
@@ -107,8 +108,10 @@ impl<'a> WikipediaScraper<'a> {
                     "Should not be adding a link that already exists"
                 );
 
-                // And then scrape that page recursively
-                self.scrape_with_depth(anchor, depth - 1)?;
+                if anchor.starts_with("https://en.wikipedia.org/wiki/") {
+                    // And then scrape that page recursively
+                    self.scrape_with_depth(anchor, depth - 1)?;
+                }
             }
         }
 
@@ -149,8 +152,9 @@ impl<'a> WikipediaScraper<'a> {
         let mut content = String::new();
         resp.read_to_string(&mut content)?;
     
-        if let Some(keywords) = &self.keywords { 
-            if keywords.iter().any(|keyword| content.contains(keyword)) {
+        if let Some(keywords) = &self.keywords {
+            let lower_content = content.to_lowercase();
+            if keywords.iter().any(|keyword| lower_content.contains(keyword.to_lowercase().as_str())) {
                 return Ok(content);
             } else {
                 return Ok(String::new());
