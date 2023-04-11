@@ -23,15 +23,15 @@ pub struct WikipediaScraper<'a> {
 fn get_complete_url(url: &str) -> Option<String> {
     // All of the internal links start with a slash
 
+    if !url.starts_with('/') {
+        return None;
+    }
+
     if url.contains(':') {
         return None;
     }
 
     if url.starts_with("/w") && !url.starts_with("/wiki") {
-        return None;
-    }
-
-    if !url.starts_with('/') {
         return None;
     }
 
@@ -89,7 +89,6 @@ impl<'a> WikipediaScraper<'a> {
             new_id
         };
 
-        // TODO: filter anchor list based on some heuristic (that should be encapsulated in a function)
         for anchor in anchor_list {
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = self.pages.get(&anchor) {
@@ -174,7 +173,6 @@ fn get_anchor_list(page_content: &str) -> Result<Vec<String>, Box<dyn Error>> {
         let anchor_selector = scraper::Selector::parse("a")?;
         
         let anchors = content.select(&anchor_selector);
-        // let anchors = document.select(&anchor_selector);
         
         let mut anchor_list = Vec::new();
         for anchor in anchors {
