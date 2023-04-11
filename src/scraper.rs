@@ -15,11 +15,6 @@ pub struct WikipediaScraper<'a> {
     keywords: Option<Vec<String>>,
 }
 
-//TODO filter out images/catergories/other links that don't lead to a page
-
-//TODO some links redirect to the same page, so we need to check for that before adding them to the set
-//TODO maybe build a map of links that redirect to the same page and check against that instead
-//TODO of making requests each time
 fn get_complete_url(url: &str) -> Option<String> {
     // All of the internal links start with a slash
 
