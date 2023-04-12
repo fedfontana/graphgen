@@ -16,11 +16,10 @@ pub struct WikipediaScraper<'a> {
 }
 
 fn get_complete_url(url: &str) -> Option<String> {
+    
     // All of the internal links start with a slash
-
     if !url.starts_with('/') {
         return Some(url.to_owned());
-        // return None;
     }
 
     if url.contains(':') {
