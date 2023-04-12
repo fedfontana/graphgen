@@ -1,4 +1,6 @@
 mod scraper;
+mod errors;
+
 use std::{error::Error, path};
 
 use clap::Parser;
@@ -50,10 +52,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         scraper.save_to_file(output_file_path)?;
     } else {
         //TODO should this be logged?
-        
         //TODO a single write
-        println!("source,target");
-        scraper.links().for_each(|link| println!("{:?}", link));
+        // println!("source,target");
+        // scraper.links().for_each(|link| println!("{:?}", link));
         // scraper.pages().for_each(|node| println!("{:?}", node));
     }
 
