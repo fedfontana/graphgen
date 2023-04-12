@@ -66,9 +66,14 @@ impl<'a> WikipediaScraper<'a> {
             return Ok(());
         }
 
+        
+        let Some(page_content)= self.get_page_content(start_url.as_ref())? else {
+            eprintln!("Skipping {} with depth: {}", start_url.as_ref(), depth);
+            return Ok(());
+        };
+        
         eprintln!("Scraping {} with depth: {}", start_url.as_ref(), depth);
-
-        let page_content = self.get_page_content(start_url.as_ref())?;
+    
         let anchor_list = get_anchor_list(&page_content)?;
 
         if anchor_list.is_empty() {
@@ -142,7 +147,7 @@ impl<'a> WikipediaScraper<'a> {
         self.pages.iter()
     }
 
-    fn get_page_content(&self, url: impl AsRef<str>) -> Result<String, Box<dyn Error>> {
+    fn get_page_content(&self, url: impl AsRef<str>) -> Result<Option<String>, Box<dyn Error>> {
         let mut resp = get(url.as_ref())?;
         let mut content = String::new();
         resp.read_to_string(&mut content)?;
@@ -150,12 +155,12 @@ impl<'a> WikipediaScraper<'a> {
         if let Some(keywords) = &self.keywords {
             let lower_content = content.to_lowercase();
             if keywords.iter().any(|keyword| lower_content.contains(keyword.to_lowercase().as_str())) {
-                return Ok(content);
+                return Ok(Some(content));
             } else {
-                return Ok(String::new());
+                return Ok(None);
             }
         }
-        Ok(content)
+        Ok(Some(content))
     }
 }
 
