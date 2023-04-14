@@ -10,4 +10,7 @@ pub enum ScraperError {
 
     #[error("Could not send data to internal channel")]
     ChannelError(#[from] crossbeam_channel::SendError<(String, u64)>),
+
+    #[error("Could not read response: {0}")]
+    ReadError(#[from] std::io::Error),
 }

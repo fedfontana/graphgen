@@ -1,12 +1,11 @@
+use crate::errors::ScraperError;
 use reqwest::blocking::get;
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     io::{Read, Write},
     sync::{Arc, Mutex},
     vec,
 };
-use crate::errors::ScraperError;
 
 type ID = u64;
 
@@ -67,18 +66,19 @@ impl<'a> WikipediaScraper<'a> {
                 let pages = self.pages.clone();
                 let tx = tx.clone();
                 let rx = rx.clone();
+                let keywords = self.keywords.clone();
 
                 std::thread::spawn(move || {
                     while let Ok((url, depth)) = rx.recv() {
+                        eprintln!("Scraping {} with depth: {}", url, depth);
                         let out_links = WikipediaScraper::scrape_with_depth(
-                            links,
-                            pages,
+                            &links,
+                            &pages,
                             url,
-                            self.keywords.as_ref(),
-                            self.depth,
+                            keywords.as_ref(),
                         )?;
 
-                        // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0 
+                        // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
                         // would return an empty vector, so just dont call the function
                         if depth > 1 {
                             out_links.into_iter().for_each(|link| {
@@ -99,24 +99,17 @@ impl<'a> WikipediaScraper<'a> {
     }
 
     fn scrape_with_depth(
-        links: Arc<Mutex<HashSet<(ID, ID)>>>,
-        pages: Arc<Mutex<HashMap<String, ID>>>,
+        links: &Arc<Mutex<HashSet<(ID, ID)>>>,
+        pages: &Arc<Mutex<HashMap<String, ID>>>,
         start_url: impl AsRef<str>,
         keywords: Option<&Vec<String>>,
-        depth: u64,
     ) -> Result<Vec<String>, ScraperError> {
 
-        //TODO Should be able to remove this check and the depth argument
-        if depth == 0 {
-            return Ok(vec![]);
-        }
-
         let Some(page_content)= WikipediaScraper::get_page_content(start_url.as_ref(), keywords)? else {
-            eprintln!("Skipping {} with depth: {}", start_url.as_ref(), depth);
+            eprintln!("Skipping {}", start_url.as_ref());
             return Ok(vec![]);
         };
 
-        eprintln!("Scraping {} with depth: {}", start_url.as_ref(), depth);
 
         let anchor_list = get_anchor_list(&page_content)?;
 
@@ -203,7 +196,7 @@ impl<'a> WikipediaScraper<'a> {
 
     fn get_page_content(
         url: impl AsRef<str>,
-        keywords: Option<Vec<String>>,
+        keywords: Option<&Vec<String>>,
     ) -> Result<Option<String>, ScraperError> {
         let mut resp = get(url.as_ref())?;
         let mut content = String::new();
@@ -228,11 +221,13 @@ fn get_anchor_list(page_content: &str) -> Result<Vec<String>, ScraperError> {
     let document = scraper::Html::parse_document(page_content);
 
     //TODO use errorkind and just log if we can't find the content (right now it is stopping the program)
-    let content_selector = scraper::Selector::parse("#bodyContent")?;
+    let content_selector =
+        scraper::Selector::parse("#bodyContent").expect("Static selector should be valid");
     let content = document.select(&content_selector).next();
     // .map_or_else(|| Err("No content found"), |content| Ok(content))?;
     if let Some(content) = content {
-        let anchor_selector = scraper::Selector::parse("a")?;
+        let anchor_selector =
+            scraper::Selector::parse("a").expect("Static selector should be valid");
 
         let anchors = content.select(&anchor_selector);
 
