@@ -4,7 +4,7 @@ use reqwest::blocking::get;
 use std::{
     collections::{HashMap, HashSet},
     io::{Read, Write},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicUsize},
     vec,
 };
 
@@ -57,42 +57,31 @@ impl<'a> WikipediaScraper<'a> {
     }
 
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
-        // create a channel to send a done message when there are no more links to scrape
-        let (done_tx, done_rx) = crossbeam_channel::bounded::<()>(self.num_threads);
+        let stopped_threads = Arc::new(AtomicUsize::new(0));
         let (tx, rx) = crossbeam_channel::unbounded::<(String, u64)>();
 
         tx.send((self.url.to_owned(), self.depth))?;
 
         let handles = (0..self.num_threads)
-            .map(|_| {
+            .map(|thread_idx| {
                 let links = self.links.clone();
                 let pages = self.pages.clone();
                 let keywords = self.keywords.clone();
 
                 let tx = tx.clone();
                 let rx = rx.clone();
-                
-                let done_tx = done_tx.clone();
-                let done_rx = done_rx.clone();
 
+                let nt = self.num_threads;
+                let stopped_threads = stopped_threads.clone();
 
                 std::thread::spawn(move || {
                     loop {
                         select! {
-                            recv(done_rx) -> _ => {
-                                if done_rx.is_full() {
-                                    eprintln!("Done full");
-                                    assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
-                                    break;
-                                }
-                                eprintln!("There are {} threads with nothing to do", done_rx.len());
-                            },
                             recv(rx) -> msg => {
-                                // clear the content of the done channel
-                                while let Ok(_) = done_rx.try_recv() {}
+                                stopped_threads.store(0, std::sync::atomic::Ordering::SeqCst);
 
                                 if let Ok((url, depth)) = msg {
-                                    eprintln!("Scraping {} with depth: {}", url, depth);
+                                    eprintln!("[Thread {}] Scraping {} with depth: {}", thread_idx, url, depth);
                                     let out_links = WikipediaScraper::scrape_with_depth(
                                         &links,
                                         &pages,
@@ -110,8 +99,14 @@ impl<'a> WikipediaScraper<'a> {
                                 }
                             },
                             default => {
-                                eprintln!("Nothing to do");
-                                done_tx.send(()).unwrap();
+                                eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", thread_idx, stopped_threads.load(std::sync::atomic::Ordering::SeqCst));
+                                stopped_threads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                //TODO there could be some other ops in between these two sync stuff
+                                if stopped_threads.load(std::sync::atomic::Ordering::SeqCst) >= nt {
+                                    assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
+                                    eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", thread_idx);
+                                    break;
+                                }
                             }
                         }
                     }
