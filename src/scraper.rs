@@ -1,4 +1,5 @@
 use crate::errors::ScraperError;
+use crossbeam_channel::select;
 use reqwest::blocking::get;
 use std::{
     collections::{HashMap, HashSet},
@@ -56,6 +57,8 @@ impl<'a> WikipediaScraper<'a> {
     }
 
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
+        // create a channel to send a done message when there are no more links to scrape
+        let (done_tx, done_rx) = crossbeam_channel::bounded::<()>(self.num_threads);
         let (tx, rx) = crossbeam_channel::unbounded::<(String, u64)>();
 
         tx.send((self.url.to_owned(), self.depth))?;
@@ -64,29 +67,55 @@ impl<'a> WikipediaScraper<'a> {
             .map(|_| {
                 let links = self.links.clone();
                 let pages = self.pages.clone();
-                let tx = tx.clone();
-                let rx = rx.clone();
                 let keywords = self.keywords.clone();
 
-                std::thread::spawn(move || {
-                    while let Ok((url, depth)) = rx.recv() {
-                        eprintln!("Scraping {} with depth: {}", url, depth);
-                        let out_links = WikipediaScraper::scrape_with_depth(
-                            &links,
-                            &pages,
-                            url,
-                            keywords.as_ref(),
-                        )?;
+                let tx = tx.clone();
+                let rx = rx.clone();
+                
+                let done_tx = done_tx.clone();
+                let done_rx = done_rx.clone();
 
-                        // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
-                        // would return an empty vector, so just dont call the function
-                        if depth > 1 {
-                            out_links.into_iter().for_each(|link| {
-                                tx.send((link, depth - 1)).unwrap();
-                            });
+
+                std::thread::spawn(move || {
+                    loop {
+                        select! {
+                            recv(done_rx) -> _ => {
+                                if done_rx.is_full() {
+                                    eprintln!("Done full");
+                                    assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
+                                    break;
+                                }
+                                eprintln!("There are {} threads with nothing to do", done_rx.len());
+                            },
+                            recv(rx) -> msg => {
+                                // clear the content of the done channel
+                                while let Ok(_) = done_rx.try_recv() {}
+
+                                if let Ok((url, depth)) = msg {
+                                    eprintln!("Scraping {} with depth: {}", url, depth);
+                                    let out_links = WikipediaScraper::scrape_with_depth(
+                                        &links,
+                                        &pages,
+                                        url,
+                                        keywords.as_ref(),
+                                    )?;
+
+                                    // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
+                                    // would return an empty vector, so just dont call the function
+                                    if depth > 1 {
+                                        out_links.into_iter().for_each(|link| {
+                                            tx.send((link, depth - 1)).unwrap();
+                                        });
+                                    }
+                                }
+                            },
+                            default => {
+                                eprintln!("Nothing to do");
+                                done_tx.send(()).unwrap();
+                            }
                         }
                     }
-                    Result::<(), ScraperError>::Ok(())
+                    Result::<_, ScraperError>::Ok(())
                 })
             })
             .collect::<Vec<_>>();
