@@ -25,6 +25,10 @@ struct Args {
     /// The first part of the name of the output files. The edges will be saved to <output-file>_edges.csv and the nodes will be saved to <output-file>_nodes.csv
     #[clap(short, long="output-file")]
     output_file: Option<String>,
+
+    /// Number of threads to use
+    #[clap(short='t', long, default_value_t = 4, value_parser=clap::value_parser!(u64).range(1..))]
+    num_threads: u64,
 }
 
 //TODO add logging and progress bar
@@ -44,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.keywords);
+    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.num_threads as usize, args.keywords);
     scraper.scrape()?;
 
     

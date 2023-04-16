@@ -41,9 +41,13 @@ fn get_complete_url(url: &str) -> Option<String> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, keywords: Option<Vec<String>>) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>) -> WikipediaScraper<'a> {
         if depth == 0 {
             panic!("Depth must be greater than 0");
+        }
+
+        if num_threads == 0 {
+            panic!("Number of threads must be greater than 0");
         }
 
         WikipediaScraper {
@@ -52,7 +56,7 @@ impl<'a> WikipediaScraper<'a> {
             links: Arc::new(Mutex::new(HashSet::new())),
             pages: Arc::new(Mutex::new(HashMap::new())),
             keywords,
-            num_threads: 8,
+            num_threads,
         }
     }
 
