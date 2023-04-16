@@ -4,8 +4,8 @@ use reqwest::blocking::get;
 use std::{
     collections::{HashMap, HashSet},
     io::{Read, Write},
-    sync::{Arc, Mutex, atomic::AtomicUsize},
-    vec,
+    sync::{Arc, Mutex},
+    vec, thread, time::Duration,
 };
 
 type ID = u64;
@@ -57,7 +57,7 @@ impl<'a> WikipediaScraper<'a> {
     }
 
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
-        let stopped_threads = Arc::new(AtomicUsize::new(0));
+        let stopped_threads = Arc::new(Mutex::new(vec![false; self.num_threads]));
         let (tx, rx) = crossbeam_channel::unbounded::<(String, u64)>();
 
         tx.send((self.url.to_owned(), self.depth))?;
@@ -78,7 +78,7 @@ impl<'a> WikipediaScraper<'a> {
                     loop {
                         select! {
                             recv(rx) -> msg => {
-                                stopped_threads.store(0, std::sync::atomic::Ordering::SeqCst);
+                                stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
 
                                 if let Ok((url, depth)) = msg {
                                     eprintln!("[Thread {}] Scraping {} with depth: {}", thread_idx, url, depth);
@@ -99,13 +99,20 @@ impl<'a> WikipediaScraper<'a> {
                                 }
                             },
                             default => {
-                                eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", thread_idx, stopped_threads.load(std::sync::atomic::Ordering::SeqCst));
-                                stopped_threads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                                //TODO there could be some other ops in between these two sync stuff
-                                if stopped_threads.load(std::sync::atomic::Ordering::SeqCst) >= nt {
+                                let mut locked_stopped_threads = stopped_threads.lock().unwrap();
+                                locked_stopped_threads[thread_idx] = true;
+                                
+                                let stopped_threads_count = locked_stopped_threads.iter().filter(|x| **x).count();
+                                eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", thread_idx, stopped_threads_count);
+                                drop(locked_stopped_threads);
+
+                                if stopped_threads_count == nt {
                                     assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
                                     eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", thread_idx);
                                     break;
+                                } else {
+                                    eprintln!("[Thread {}] Going to sleep for 500ms", thread_idx);
+                                    thread::sleep(Duration::from_millis(500));
                                 }
                             }
                         }
