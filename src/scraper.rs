@@ -161,6 +161,7 @@ impl<'a> WikipediaScraper<'a> {
         // If the page has already been visited, just add the links to the links set by recovering its id
         // else generate a new id and add it to the pages before proceeding to process the links
         let mut own_pages = pages.lock().unwrap();
+        let mut own_links = links.lock().unwrap();
         let start_url_id = if let Some(start_url_id) = own_pages.get(start_url.as_ref()) {
             *start_url_id
         } else {
@@ -171,7 +172,6 @@ impl<'a> WikipediaScraper<'a> {
 
         let mut out_links = Vec::new();
 
-        let mut own_links = links.lock().unwrap();
         for anchor in anchor_list {
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = own_pages.get(&anchor) {
