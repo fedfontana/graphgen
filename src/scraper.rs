@@ -22,6 +22,7 @@ pub struct WikipediaScraper<'a> {
 fn get_complete_url(url: &str) -> Option<String> {
     // All of the internal links start with a slash
     if !url.starts_with('/') {
+        return None;
         return Some(url.to_owned());
     }
 
@@ -152,16 +153,11 @@ impl<'a> WikipediaScraper<'a> {
             return Ok(vec![]);
         }
 
-        //TODO I think that we cannot use RwLock here since we need to get the current length of the set
-        //TODO and then insert the new element, and if we use RwLock, we would be able to get the length
-        //TODO but it could be stored by another thread, and then we would be inserting the new element
-        //TODO with the same id as the other thread, which would be a problem (since the element would be different and have the same id)
-        //TODO Maybe we could use a different id generation method.
+        let mut own_pages = pages.lock().unwrap();
+        let mut own_links = links.lock().unwrap();
 
         // If the page has already been visited, just add the links to the links set by recovering its id
         // else generate a new id and add it to the pages before proceeding to process the links
-        let mut own_pages = pages.lock().unwrap();
-        let mut own_links = links.lock().unwrap();
         let start_url_id = if let Some(start_url_id) = own_pages.get(start_url.as_ref()) {
             *start_url_id
         } else {
