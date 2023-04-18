@@ -1,5 +1,6 @@
 mod scraper;
 mod errors;
+mod worker;
 
 use std::{error::Error, path};
 
