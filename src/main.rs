@@ -29,9 +29,15 @@ struct Args {
     /// Number of threads to use
     #[clap(short='t', long, default_value_t = 4, value_parser=clap::value_parser!(u64).range(1..))]
     num_threads: u64,
+
+    /// Wheter to generate an undirected graph
+    /// If this is set to true, the script will only save the edges where there is both a link from source to destination and viceversa.
+    #[clap(long, default_value_t = false)]
+    undirected: bool,
 }
 
-//TODO add logging and progress bar
+//TODO da copilot per undirected:
+// If this is set to true, the script will only save the edges where the source is smaller than the target
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -48,7 +54,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.num_threads as usize, args.keywords);
+    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.num_threads as usize, args.keywords, args.undirected);
     scraper.scrape()?;
 
     

@@ -10,6 +10,9 @@ use std::{
 
 type ID = u64;
 
+//TODO move logic to worker that also contains the thread_idx?
+//TODO what happens if we add a --undirected flag that changes which links and nodes are added to the graph?
+
 pub struct WikipediaScraper<'a> {
     url: &'a str,
     depth: u64,
@@ -17,6 +20,7 @@ pub struct WikipediaScraper<'a> {
     pages: Arc<Mutex<HashMap<String, ID>>>,
     keywords: Option<Vec<String>>,
     num_threads: usize,
+    undirected: bool,
 }
 
 fn get_complete_url(url: &str) -> Option<String> {
@@ -42,7 +46,7 @@ fn get_complete_url(url: &str) -> Option<String> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool) -> WikipediaScraper<'a> {
         if depth == 0 {
             panic!("Depth must be greater than 0");
         }
@@ -54,10 +58,11 @@ impl<'a> WikipediaScraper<'a> {
         WikipediaScraper {
             url,
             depth,
-            links: Arc::new(Mutex::new(HashSet::new())),
-            pages: Arc::new(Mutex::new(HashMap::new())),
+            links: Default::default(),
+            pages: Default::default(),
             keywords,
             num_threads,
+            undirected,
         }
     }
 
@@ -206,24 +211,50 @@ impl<'a> WikipediaScraper<'a> {
         edges_file.write_all("source,target\n".as_bytes())?;
         nodes_file.write_all("node_id,url\n".as_bytes())?;
 
-        for page in self.pages.lock().unwrap().iter() {
-            nodes_file.write_all(format!("{},\"{}\"\n", page.1, page.0).as_bytes())?;
-        }
+        let own_links = self.links.lock().unwrap();
+        let own_pages = self.pages.lock().unwrap();
 
-        for link in self.links.lock().unwrap().iter() {
-            edges_file.write_all(format!("{},{}\n", link.0, link.1).as_bytes())?;
+
+        if !self.undirected {
+            for (url, id) in own_pages.iter() {
+                nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
+            }
+            
+            for (source, dest) in own_links.iter() {
+                edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
+            }
+        } else {
+            
+            let mut visited_edges = HashSet::new();
+            let mut visited_nodes_set = HashSet::new();
+            let mut visited_nodes = HashMap::new();
+            
+            for (source, dest) in own_links.iter() {
+                if own_links.contains(&(*dest, *source)) {
+                    visited_edges.insert((source, dest));
+                    visited_nodes_set.insert(source);
+                    visited_nodes_set.insert(dest);
+                }
+            }
+
+            for (url, id) in own_pages.iter() {
+                if visited_nodes_set.contains(id) {
+                    visited_nodes.insert(id, url);
+                }
+            }
+
+            for (id, url) in visited_nodes.iter() {
+                nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
+            }
+            
+            for (source, dest) in visited_edges.iter() {
+                edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
+            }
+
         }
 
         Ok(())
     }
-
-    // pub fn links(&self) -> impl Iterator<Item = &(ID, ID)> {
-    //     self.links.iter()
-    // }
-
-    // pub fn pages(&self) -> impl Iterator<Item = (&String, &ID)> {
-    //     self.pages.iter()
-    // }
 
     fn get_page_content(
         url: impl AsRef<str>,
