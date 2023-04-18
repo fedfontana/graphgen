@@ -46,7 +46,7 @@ fn get_complete_url(url: &str) -> Option<String> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool) -> WikipediaScraper<'a> {
         if depth == 0 {
             panic!("Depth must be greater than 0");
         }
@@ -62,7 +62,7 @@ impl<'a> WikipediaScraper<'a> {
             pages: Default::default(),
             keywords,
             num_threads,
-            undirected: true,
+            undirected,
         }
     }
 
@@ -211,18 +211,20 @@ impl<'a> WikipediaScraper<'a> {
         edges_file.write_all("source,target\n".as_bytes())?;
         nodes_file.write_all("node_id,url\n".as_bytes())?;
 
+        let own_links = self.links.lock().unwrap();
+        let own_pages = self.pages.lock().unwrap();
+
+
         if !self.undirected {
-            for (url, id) in self.pages.lock().unwrap().iter() {
+            for (url, id) in own_pages.iter() {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
             
-            for (source, dest) in self.links.lock().unwrap().iter() {
+            for (source, dest) in own_links.iter() {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
         } else {
-            let own_links = self.links.lock().unwrap();
-            let own_nodes = self.pages.lock().unwrap();
-
+            
             let mut visited_edges = HashSet::new();
             let mut visited_nodes_set = HashSet::new();
             let mut visited_nodes = HashMap::new();
@@ -235,7 +237,7 @@ impl<'a> WikipediaScraper<'a> {
                 }
             }
 
-            for (url, id) in own_nodes.iter() {
+            for (url, id) in own_pages.iter() {
                 if visited_nodes_set.contains(id) {
                     visited_nodes.insert(id, url);
                 }
