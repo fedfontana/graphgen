@@ -103,44 +103,56 @@ impl Worker {
         Ok(Some(content))
     }
 
-    pub fn get_anchor_list(&self, page_content: &str, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
+    pub fn get_anchor_list(
+        &self,
+        page_content: &str,
+        keep_external_links: bool,
+    ) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
-        //TODO use errorkind and just log if we can't find the content (right now it is stopping the program)
         let content_selector =
             scraper::Selector::parse("#bodyContent").expect("Static selector should be valid");
-        let content = document.select(&content_selector).next();
-        // .map_or_else(|| Err("No content found"), |content| Ok(content))?;
-        if let Some(content) = content {
-            let anchor_selector =
-                scraper::Selector::parse("a").expect("Static selector should be valid");
+        let content = document.select(&content_selector).next().map_or_else(
+            || Err(ScraperError::NoContentFound("".into())),
+            |content| Ok(content),
+        )?;
+        let anchor_selector =
+            scraper::Selector::parse("a").expect("Static selector should be valid");
 
-            let anchors = content.select(&anchor_selector);
+        let anchors = content.select(&anchor_selector);
 
-            let mut anchor_list = Vec::new();
-            for anchor in anchors {
-                if let Some(href) = anchor.value().attr("href") {
-                    if let Some(url) = get_complete_url(href, keep_external_links) {
-                        anchor_list.push(url);
-                    }
+        let mut anchor_list = Vec::new();
+        for anchor in anchors {
+            if let Some(href) = anchor.value().attr("href") {
+                if let Some(url) = get_complete_url(href, keep_external_links) {
+                    anchor_list.push(url);
                 }
             }
-            Ok(anchor_list)
-        } else {
-            eprintln!("[Thread {}] No content found for a page", self.id);
-            Ok(Vec::new())
         }
+        Ok(anchor_list)
     }
 
-    fn scrape_with_depth(&self, start_url: impl AsRef<str>, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
+    fn scrape_with_depth(
+        &self,
+        start_url: impl AsRef<str>,
+        keep_external_links: bool,
+    ) -> Result<Vec<String>, ScraperError> {
         let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
-            eprintln!("[Trhead {}] Skipping {}", self.id, start_url.as_ref());
+            eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
 
-        let anchor_list = self.get_anchor_list(&page_content, keep_external_links)?;
+        let Ok(anchor_list) = self.get_anchor_list(&page_content, keep_external_links) else {
+            eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
+            return Ok(vec![]);
+        };
 
         if anchor_list.is_empty() {
+            eprintln!(
+                "[Thread {}] No links found in page {}",
+                self.id,
+                start_url.as_ref()
+            );
             return Ok(vec![]);
         }
 
