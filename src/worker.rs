@@ -1,11 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet},
     io::Read,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
+use flurry::{HashMap,HashSet};
 use crossbeam_channel::{select, Receiver, Sender};
 use reqwest::blocking::get;
 
@@ -13,16 +13,16 @@ use crate::{errors::ScraperError, scraper::ID};
 
 pub struct Worker {
     id: usize,
-    links: Arc<Mutex<HashSet<(ID, ID)>>>,
-    pages: Arc<Mutex<HashMap<String, ID>>>,
+    links: Arc<HashSet<(ID, ID)>>,
+    pages: Arc<HashMap<String, ID>>,
     keywords: Option<Vec<String>>,
 }
 
 impl Worker {
     pub fn new(
         id: usize,
-        links: Arc<Mutex<HashSet<(ID, ID)>>>,
-        pages: Arc<Mutex<HashMap<String, ID>>>,
+        links: Arc<HashSet<(ID, ID)>>,
+        pages: Arc<HashMap<String, ID>>,
         keywords: Option<Vec<String>>,
     ) -> Worker {
         Worker {
@@ -46,7 +46,7 @@ impl Worker {
                     stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
 
                     if let Ok((url, depth)) = msg {
-                        eprintln!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
+                        println!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
                         let out_links = self.scrape_with_depth(url, keep_external_links)?;
 
                         // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
@@ -63,16 +63,16 @@ impl Worker {
                     locked_stopped_threads[self.id] = true;
 
                     let stopped_threads_count = locked_stopped_threads.iter().filter(|x| **x).count();
-                    eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", self.id, stopped_threads_count);
+                    println!("[Thread {}] Nothing to do. Stuck in here with other {} threads", self.id, stopped_threads_count);
                     let nt = locked_stopped_threads.len();
                     drop(locked_stopped_threads);
 
                     if stopped_threads_count == nt {
                         debug_assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
-                        eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
+                        println!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
                         break;
                     } else {
-                        eprintln!("[Thread {}] Going to sleep for 500ms", self.id);
+                        println!("[Thread {}] Going to sleep for 500ms", self.id);
                         thread::sleep(Duration::from_millis(500));
                     }
                 }
@@ -138,17 +138,17 @@ impl Worker {
         keep_external_links: bool,
     ) -> Result<Vec<String>, ScraperError> {
         let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
-            eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
+            println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
 
         let Ok(anchor_list) = self.get_anchor_list(&page_content, keep_external_links) else {
-            eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
+            println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
 
         if anchor_list.is_empty() {
-            eprintln!(
+            println!(
                 "[Thread {}] No links found in page {}",
                 self.id,
                 start_url.as_ref()
@@ -156,16 +156,19 @@ impl Worker {
             return Ok(vec![]);
         }
 
-        let mut own_pages = self.pages.lock().unwrap();
-        let mut own_links = self.links.lock().unwrap();
+
+        let pages_guard = self.pages.guard();
+        let links_guard = self.links.guard();
+
+        //TODO change id assignment method
 
         // If the page has already been visited, just add the links to the links set by recovering its id
         // else generate a new id and add it to the pages before proceeding to process the links
-        let start_url_id = if let Some(start_url_id) = own_pages.get(start_url.as_ref()) {
+        let start_url_id = if let Some(start_url_id) = self.pages.get(start_url.as_ref(), &pages_guard) {
             *start_url_id
         } else {
-            let new_id = own_pages.len() as ID;
-            own_pages.insert(start_url.as_ref().to_string(), new_id);
+            let new_id = self.pages.len() as ID;
+            self.pages.insert(start_url.as_ref().to_string(), new_id, &pages_guard);
             new_id
         };
 
@@ -173,25 +176,26 @@ impl Worker {
 
         for anchor in anchor_list {
             // If the link has already been visited, just add the current link to the links set
-            if let Some(anchor_id) = own_pages.get(&anchor) {
-                own_links.insert((start_url_id, *anchor_id));
+            if let Some(anchor_id) = self.pages.get(&anchor, &pages_guard) {
+                self.links.insert((start_url_id, *anchor_id), &links_guard);
             } else {
                 // Else generate the anchor id and add it to the pages
-                let anchor_id = own_pages.len() as ID;
+                let anchor_id = self.pages.len() as ID;
 
-                let anchor_insert_res = own_pages.insert(anchor.clone(), anchor_id);
+                let anchor_insert_res = self.pages.insert(anchor.clone(), anchor_id, &pages_guard);
                 debug_assert!(
                     anchor_insert_res.is_none(),
                     "Should not be adding a page that already exists"
                 );
 
                 // Add the link
-                let link_insert_res = own_links.insert((start_url_id, anchor_id));
+                let link_insert_res = self.links.insert((start_url_id, anchor_id), &links_guard);
                 debug_assert!(
                     link_insert_res,
                     "Should not be adding a link that already exists"
                 );
 
+                // Only scrape the link if it is an internal link
                 if anchor.starts_with("https://en.wikipedia.org/wiki/") {
                     // And then scrape that page recursively
                     out_links.push(anchor);

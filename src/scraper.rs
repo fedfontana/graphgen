@@ -1,21 +1,19 @@
 use crate::errors::ScraperError;
 use crate::worker::Worker;
 
+use flurry::{HashMap, HashSet};
 use std::{
-    collections::{HashMap, HashSet},
     io::Write,
     sync::{Arc, Mutex},
 };
 
 pub type ID = u64;
 
-//TODO not all errors should stop the whole program
-
 pub struct WikipediaScraper<'a> {
     url: &'a str,
     depth: u64,
-    links: Arc<Mutex<HashSet<(ID, ID)>>>,
-    pages: Arc<Mutex<HashMap<String, ID>>>,
+    links: Arc<HashSet<(ID, ID)>>,
+    pages: Arc<HashMap<String, ID>>,
     keywords: Option<Vec<String>>,
     num_threads: usize,
     undirected: bool,
@@ -23,12 +21,19 @@ pub struct WikipediaScraper<'a> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool, keep_external_links: bool) -> WikipediaScraper<'a> {
+    pub fn new(
+        url: &'a str,
+        depth: u64,
+        num_threads: usize,
+        keywords: Option<Vec<String>>,
+        undirected: bool,
+        keep_external_links: bool,
+    ) -> WikipediaScraper<'a> {
         if depth == 0 {
-            eprintln!("[WARN] Depth must be greater than 0. Setting it to 1.");
+            println!("[WARN] Depth must be greater than 0. Setting it to 1.");
         }
         if num_threads == 0 {
-            eprintln!("[WARN] Number of threads must be greater than 0. Setting it to 1.");
+            println!("[WARN] Number of threads must be greater than 0. Setting it to 1.");
         }
 
         WikipediaScraper {
@@ -44,11 +49,11 @@ impl<'a> WikipediaScraper<'a> {
     }
 
     pub fn num_links(&self) -> usize {
-        self.links.lock().unwrap().len()
+        self.links.len()
     }
 
     pub fn num_pages(&self) -> usize {
-        self.pages.lock().unwrap().len()
+        self.pages.len()
     }
 
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
@@ -93,31 +98,31 @@ impl<'a> WikipediaScraper<'a> {
         edges_file.write_all("source,target\n".as_bytes())?;
         nodes_file.write_all("node_id,url\n".as_bytes())?;
 
-        let own_links = self.links.lock().unwrap();
-        let own_pages = self.pages.lock().unwrap();
+        let links_guard = self.links.guard();
+        let pages_guard = self.pages.guard();
 
         if !self.undirected {
-            for (url, id) in own_pages.iter() {
+            for (url, id) in self.pages.iter(&pages_guard) {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
-            
-            for (source, dest) in own_links.iter() {
+
+            for (source, dest) in self.links.iter(&links_guard) {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
         } else {
-            let mut visited_edges = HashSet::new();
-            let mut visited_nodes_set = HashSet::new();
-            let mut visited_nodes = HashMap::new();
-            
-            for (source, dest) in own_links.iter() {
-                if own_links.contains(&(*dest, *source)) {
+            let mut visited_edges = std::collections::HashSet::new();
+            let mut visited_nodes_set = std::collections::HashSet::new();
+            let mut visited_nodes = std::collections::HashMap::new();
+
+            for (source, dest) in self.links.iter(&links_guard) {
+                if self.links.contains(&(*dest, *source), &links_guard) {
                     visited_edges.insert((source, dest));
                     visited_nodes_set.insert(source);
                     visited_nodes_set.insert(dest);
                 }
             }
 
-            for (url, id) in own_pages.iter() {
+            for (url, id) in self.pages.iter(&pages_guard) {
                 if visited_nodes_set.contains(id) {
                     visited_nodes.insert(id, url);
                 }
@@ -126,7 +131,7 @@ impl<'a> WikipediaScraper<'a> {
             for (id, url) in visited_nodes.iter() {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
-            
+
             for (source, dest) in visited_edges.iter() {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
