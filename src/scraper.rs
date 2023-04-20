@@ -9,11 +9,7 @@ use std::{
 
 pub type ID = u64;
 
-//TODO add --remove-external-links flag to pass to get_completed_url
 //TODO not all errors should stop the whole program
-
-//TODO move logic to worker that also contains the thread_idx?
-//TODO what happens if we add a --undirected flag that changes which links and nodes are added to the graph?
 
 pub struct WikipediaScraper<'a> {
     url: &'a str,
@@ -45,6 +41,14 @@ impl<'a> WikipediaScraper<'a> {
             undirected,
             keep_external_links,
         }
+    }
+
+    pub fn num_links(&self) -> usize {
+        self.links.lock().unwrap().len()
+    }
+
+    pub fn num_pages(&self) -> usize {
+        self.pages.lock().unwrap().len()
     }
 
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
