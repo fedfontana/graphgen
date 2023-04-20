@@ -3,7 +3,6 @@ mod errors;
 mod worker;
 
 use std::{error::Error, path};
-
 use clap::Parser;
 
 use crate::scraper::WikipediaScraper;
