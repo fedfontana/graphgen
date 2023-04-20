@@ -178,14 +178,17 @@ impl Worker {
             } else {
                 // Else generate the anchor id and add it to the pages
                 let anchor_id = own_pages.len() as ID;
+
+                let anchor_insert_res = own_pages.insert(anchor.clone(), anchor_id);
                 debug_assert!(
-                    own_pages.insert(anchor.clone(), anchor_id).is_none(),
+                    anchor_insert_res.is_none(),
                     "Should not be adding a page that already exists"
                 );
 
                 // Add the link
+                let link_insert_res = own_links.insert((start_url_id, anchor_id));
                 debug_assert!(
-                    own_links.insert((start_url_id, anchor_id)),
+                    link_insert_res,
                     "Should not be adding a link that already exists"
                 );
 
