@@ -23,25 +23,27 @@ pub struct WikipediaScraper<'a> {
     keywords: Option<Vec<String>>,
     num_threads: usize,
     undirected: bool,
+    keep_external_links: bool,
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool) -> WikipediaScraper<'a> {
+    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool, keep_external_links: bool) -> WikipediaScraper<'a> {
         if depth == 0 {
-            panic!("Depth must be greater than 0");
+            eprintln!("[WARN] Depth must be greater than 0. Setting it to 1.");
         }
         if num_threads == 0 {
-            panic!("Number of threads must be greater than 0");
+            eprintln!("[WARN] Number of threads must be greater than 0. Setting it to 1.");
         }
 
         WikipediaScraper {
             url,
-            depth,
+            depth: depth.max(1),
             links: Default::default(),
             pages: Default::default(),
             keywords,
-            num_threads,
+            num_threads: num_threads.max(1),
             undirected,
+            keep_external_links,
         }
     }
 
@@ -56,6 +58,7 @@ impl<'a> WikipediaScraper<'a> {
                 let links = self.links.clone();
                 let pages = self.pages.clone();
                 let keywords = self.keywords.clone();
+                let keep_external_links = self.keep_external_links;
 
                 let tx = tx.clone();
                 let rx = rx.clone();
@@ -64,7 +67,7 @@ impl<'a> WikipediaScraper<'a> {
 
                 std::thread::spawn(move || {
                     let worker = Worker::new(thread_idx, links, pages, keywords);
-                    worker.scrape(rx, tx, stopped_threads)
+                    worker.scrape(rx, tx, stopped_threads, keep_external_links)
                 })
             })
             .collect::<Vec<_>>();

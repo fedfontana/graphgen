@@ -34,6 +34,10 @@ struct Args {
     /// If this is set to true, the script will only save the edges where there is both a link from source to destination and viceversa.
     #[clap(long, default_value_t = false)]
     undirected: bool,
+
+    /// Wheter to remove external links
+    #[clap(long, default_value_t = false)]
+    keep_external_links: bool,
 }
 
 //TODO da copilot per undirected:
@@ -54,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.num_threads as usize, args.keywords, args.undirected);
+    let mut scraper = WikipediaScraper::new(&args.url, args.depth, args.num_threads as usize, args.keywords, args.undirected, args.keep_external_links);
     scraper.scrape()?;
 
     

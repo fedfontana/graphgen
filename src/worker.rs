@@ -38,6 +38,7 @@ impl Worker {
         rx: Receiver<(String, u64)>,
         tx: Sender<(String, u64)>,
         stopped_threads: Arc<Mutex<Vec<bool>>>,
+        keep_external_links: bool,
     ) -> Result<(), ScraperError> {
         loop {
             select! {
@@ -46,7 +47,7 @@ impl Worker {
 
                     if let Ok((url, depth)) = msg {
                         eprintln!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
-                        let out_links = self.scrape_with_depth(url)?;
+                        let out_links = self.scrape_with_depth(url, keep_external_links)?;
 
                         // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
                         // would return an empty vector, so just dont call the function
@@ -102,7 +103,7 @@ impl Worker {
         Ok(Some(content))
     }
 
-    pub fn get_anchor_list(page_content: &str) -> Result<Vec<String>, ScraperError> {
+    pub fn get_anchor_list(page_content: &str, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
         //TODO use errorkind and just log if we can't find the content (right now it is stopping the program)
@@ -119,7 +120,7 @@ impl Worker {
             let mut anchor_list = Vec::new();
             for anchor in anchors {
                 if let Some(href) = anchor.value().attr("href") {
-                    if let Some(url) = get_complete_url(href) {
+                    if let Some(url) = get_complete_url(href, keep_external_links) {
                         anchor_list.push(url);
                     }
                 }
@@ -131,13 +132,13 @@ impl Worker {
         }
     }
 
-    fn scrape_with_depth(&self, start_url: impl AsRef<str>) -> Result<Vec<String>, ScraperError> {
+    fn scrape_with_depth(&self, start_url: impl AsRef<str>, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
         let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
             eprintln!("Skipping {}", start_url.as_ref());
             return Ok(vec![]);
         };
 
-        let anchor_list = Worker::get_anchor_list(&page_content)?;
+        let anchor_list = Worker::get_anchor_list(&page_content, keep_external_links)?;
 
         if anchor_list.is_empty() {
             return Ok(vec![]);
@@ -187,11 +188,14 @@ impl Worker {
     }
 }
 
-fn get_complete_url(url: &str) -> Option<String> {
+fn get_complete_url(url: &str, keep_external_links: bool) -> Option<String> {
     // All of the internal links start with a slash
     if !url.starts_with('/') {
-        return None;
-        // return Some(url.to_owned());
+        return if keep_external_links {
+            Some(url.to_owned())
+        } else {
+            None
+        };
     }
 
     if url.contains(':') {
