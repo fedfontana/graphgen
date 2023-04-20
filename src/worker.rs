@@ -68,7 +68,7 @@ impl Worker {
                     drop(locked_stopped_threads);
 
                     if stopped_threads_count == nt {
-                        assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
+                        debug_assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
                         eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
                         break;
                     } else {
@@ -103,7 +103,7 @@ impl Worker {
         Ok(Some(content))
     }
 
-    pub fn get_anchor_list(page_content: &str, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
+    pub fn get_anchor_list(&self, page_content: &str, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
         //TODO use errorkind and just log if we can't find the content (right now it is stopping the program)
@@ -127,18 +127,18 @@ impl Worker {
             }
             Ok(anchor_list)
         } else {
-            eprintln!("No content found for a page");
+            eprintln!("[Thread {}] No content found for a page", self.id);
             Ok(Vec::new())
         }
     }
 
     fn scrape_with_depth(&self, start_url: impl AsRef<str>, keep_external_links: bool) -> Result<Vec<String>, ScraperError> {
         let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
-            eprintln!("Skipping {}", start_url.as_ref());
+            eprintln!("[Trhead {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
 
-        let anchor_list = Worker::get_anchor_list(&page_content, keep_external_links)?;
+        let anchor_list = self.get_anchor_list(&page_content, keep_external_links)?;
 
         if anchor_list.is_empty() {
             return Ok(vec![]);
@@ -166,13 +166,13 @@ impl Worker {
             } else {
                 // Else generate the anchor id and add it to the pages
                 let anchor_id = own_pages.len() as ID;
-                assert!(
+                debug_assert!(
                     own_pages.insert(anchor.clone(), anchor_id).is_none(),
                     "Should not be adding a page that already exists"
                 );
 
                 // Add the link
-                assert!(
+                debug_assert!(
                     own_links.insert((start_url_id, anchor_id)),
                     "Should not be adding a link that already exists"
                 );
