@@ -1,6 +1,7 @@
 use crate::errors::ScraperError;
 use crate::worker::Worker;
 
+use crossbeam_channel::{Receiver, Sender};
 use flurry::{HashMap, HashSet};
 use std::{
     io::Write,
@@ -56,6 +57,25 @@ impl<'a> WikipediaScraper<'a> {
         self.pages.len()
     }
 
+    pub fn worker(
+        &self,
+        id: usize,
+        tx: Sender<(String, u64)>,
+        rx: Receiver<(String, u64)>,
+        stopped_threads: Arc<Mutex<Vec<bool>>>,
+    ) -> Worker {
+        Worker::new(
+            id,
+            self.links.clone(),
+            self.pages.clone(),
+            self.keywords.clone(),
+            tx,
+            rx,
+            stopped_threads,
+            self.keep_external_links,
+        )
+    }
+
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
         let stopped_threads = Arc::new(Mutex::new(vec![false; self.num_threads]));
         let (tx, rx) = crossbeam_channel::unbounded::<(String, u64)>();
@@ -64,19 +84,13 @@ impl<'a> WikipediaScraper<'a> {
 
         let handles = (0..self.num_threads)
             .map(|thread_idx| {
-                let links = self.links.clone();
-                let pages = self.pages.clone();
-                let keywords = self.keywords.clone();
-                let keep_external_links = self.keep_external_links;
-
                 let tx = tx.clone();
                 let rx = rx.clone();
-
                 let stopped_threads = stopped_threads.clone();
 
+                let worker = self.worker(thread_idx, tx, rx, stopped_threads);
                 std::thread::spawn(move || {
-                    let worker = Worker::new(thread_idx, links, pages, keywords);
-                    worker.scrape(rx, tx, stopped_threads, keep_external_links)
+                    worker.scrape()
                 })
             })
             .collect::<Vec<_>>();

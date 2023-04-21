@@ -5,8 +5,8 @@ use std::{
     time::Duration,
 };
 
-use flurry::{HashMap,HashSet};
 use crossbeam_channel::{select, Receiver, Sender};
+use flurry::{HashMap, HashSet};
 use reqwest::blocking::get;
 
 use crate::{errors::ScraperError, scraper::ID};
@@ -16,6 +16,10 @@ pub struct Worker {
     links: Arc<HashSet<(ID, ID)>>,
     pages: Arc<HashMap<String, ID>>,
     keywords: Option<Vec<String>>,
+    tx: Sender<(String, u64)>,
+    rx: Receiver<(String, u64)>,
+    stopped_threads: Arc<Mutex<Vec<bool>>>,
+    keep_external_links: bool,
 }
 
 impl Worker {
@@ -24,42 +28,44 @@ impl Worker {
         links: Arc<HashSet<(ID, ID)>>,
         pages: Arc<HashMap<String, ID>>,
         keywords: Option<Vec<String>>,
+        tx: Sender<(String, u64)>,
+        rx: Receiver<(String, u64)>,
+        stopped_threads: Arc<Mutex<Vec<bool>>>,
+        keep_external_links: bool,
     ) -> Worker {
         Worker {
             id,
             links,
             pages,
             keywords,
+            tx,
+            rx,
+            stopped_threads,
+            keep_external_links,
         }
     }
 
-    pub fn scrape(
-        &self,
-        rx: Receiver<(String, u64)>,
-        tx: Sender<(String, u64)>,
-        stopped_threads: Arc<Mutex<Vec<bool>>>,
-        keep_external_links: bool,
-    ) -> Result<(), ScraperError> {
+    pub fn scrape(&self) -> Result<(), ScraperError> {
         loop {
             select! {
-                recv(rx) -> msg => {
-                    stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
+                recv(self.rx) -> msg => {
+                    self.stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
 
                     if let Ok((url, depth)) = msg {
                         println!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
-                        let out_links = self.scrape_with_depth(url, keep_external_links)?;
+                        let out_links = self.scrape_with_depth(url, self.keep_external_links)?;
 
                         // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
                         // would return an empty vector, so just dont call the function
                         if depth > 1 {
                             out_links.into_iter().for_each(|link| {
-                                tx.send((link, depth - 1)).unwrap();
+                                self.tx.send((link, depth - 1)).unwrap();
                             });
                         }
                     }
                 },
                 default => {
-                    let mut locked_stopped_threads = stopped_threads.lock().unwrap();
+                    let mut locked_stopped_threads = self.stopped_threads.lock().unwrap();
                     locked_stopped_threads[self.id] = true;
 
                     let stopped_threads_count = locked_stopped_threads.iter().filter(|x| **x).count();
@@ -68,7 +74,7 @@ impl Worker {
                     drop(locked_stopped_threads);
 
                     if stopped_threads_count == nt {
-                        debug_assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
+                        debug_assert!(self.rx.len() == 0, "Expected rx to be empty, found {} links", self.rx.len());
                         println!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
                         break;
                     } else {
@@ -156,7 +162,6 @@ impl Worker {
             return Ok(vec![]);
         }
 
-
         let pages_guard = self.pages.guard();
         let links_guard = self.links.guard();
 
@@ -164,13 +169,15 @@ impl Worker {
 
         // If the page has already been visited, just add the links to the links set by recovering its id
         // else generate a new id and add it to the pages before proceeding to process the links
-        let start_url_id = if let Some(start_url_id) = self.pages.get(start_url.as_ref(), &pages_guard) {
-            *start_url_id
-        } else {
-            let new_id = self.pages.len() as ID;
-            self.pages.insert(start_url.as_ref().to_string(), new_id, &pages_guard);
-            new_id
-        };
+        let start_url_id =
+            if let Some(start_url_id) = self.pages.get(start_url.as_ref(), &pages_guard) {
+                *start_url_id
+            } else {
+                let new_id = self.pages.len() as ID;
+                self.pages
+                    .insert(start_url.as_ref().to_string(), new_id, &pages_guard);
+                new_id
+            };
 
         let mut out_links = Vec::new();
 
