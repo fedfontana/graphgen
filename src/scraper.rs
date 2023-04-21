@@ -89,9 +89,7 @@ impl<'a> WikipediaScraper<'a> {
                 let stopped_threads = stopped_threads.clone();
 
                 let worker = self.worker(thread_idx, tx, rx, stopped_threads);
-                std::thread::spawn(move || {
-                    worker.scrape()
-                })
+                std::thread::spawn(move || worker.scrape())
             })
             .collect::<Vec<_>>();
 

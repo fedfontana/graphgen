@@ -123,7 +123,11 @@ impl Worker {
         Ok(anchor_list)
     }
 
-    fn scrape_with_depth(&self, start_url: impl AsRef<str>, depth: u64) -> Result<(), ScraperError> {
+    fn scrape_with_depth(
+        &self,
+        start_url: impl AsRef<str>,
+        depth: u64,
+    ) -> Result<(), ScraperError> {
         let Some(page_content)= self.get_page_content(start_url.as_ref())? else {
             println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(());
