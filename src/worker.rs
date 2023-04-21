@@ -53,15 +53,7 @@ impl Worker {
 
                     if let Ok((url, depth)) = msg {
                         println!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
-                        let out_links = self.scrape_with_depth(url)?;
-
-                        // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
-                        // would return an empty vector, so just dont call the function
-                        if depth > 1 {
-                            out_links.into_iter().for_each(|link| {
-                                self.tx.send((link, depth - 1)).unwrap();
-                            });
-                        }
+                        self.scrape_with_depth(url, depth)?;
                     }
                 },
                 default => {
@@ -87,10 +79,7 @@ impl Worker {
         Ok(())
     }
 
-    pub fn get_page_content(
-        &self,
-        url: impl AsRef<str>,
-    ) -> Result<Option<String>, ScraperError> {
+    pub fn get_page_content(&self, url: impl AsRef<str>) -> Result<Option<String>, ScraperError> {
         let mut resp = get(url.as_ref())?;
         let mut content = String::new();
         resp.read_to_string(&mut content)?;
@@ -109,10 +98,7 @@ impl Worker {
         Ok(Some(content))
     }
 
-    pub fn get_anchor_list(
-        &self,
-        page_content: &str,
-    ) -> Result<Vec<String>, ScraperError> {
+    pub fn get_anchor_list(&self, page_content: &str) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
         let content_selector =
@@ -137,18 +123,15 @@ impl Worker {
         Ok(anchor_list)
     }
 
-    fn scrape_with_depth(
-        &self,
-        start_url: impl AsRef<str>,
-    ) -> Result<Vec<String>, ScraperError> {
+    fn scrape_with_depth(&self, start_url: impl AsRef<str>, depth: u64) -> Result<(), ScraperError> {
         let Some(page_content)= self.get_page_content(start_url.as_ref())? else {
             println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
-            return Ok(vec![]);
+            return Ok(());
         };
 
         let Ok(anchor_list) = self.get_anchor_list(&page_content) else {
-            println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
-            return Ok(vec![]);
+            println!("[Thread {}] No links found in pate at {}", self.id, start_url.as_ref());
+            return Ok(());
         };
 
         if anchor_list.is_empty() {
@@ -157,7 +140,7 @@ impl Worker {
                 self.id,
                 start_url.as_ref()
             );
-            return Ok(vec![]);
+            return Ok(());
         }
 
         let pages_guard = self.pages.guard();
@@ -176,8 +159,6 @@ impl Worker {
                     .insert(start_url.as_ref().to_string(), new_id, &pages_guard);
                 new_id
             };
-
-        let mut out_links = Vec::new();
 
         for anchor in anchor_list {
             // If the link has already been visited, just add the current link to the links set
@@ -203,12 +184,17 @@ impl Worker {
                 // Only scrape the link if it is an internal link
                 if anchor.starts_with("https://en.wikipedia.org/wiki/") {
                     // And then scrape that page recursively
-                    out_links.push(anchor);
+                    if depth > 1 {
+                        // If the page has not been visited yet, add it to the queue
+                        if anchor_insert_res.is_none() {
+                            self.tx.send((anchor, depth - 1)).unwrap();
+                        }
+                    }
                 }
             }
         }
 
-        Ok(out_links)
+        Ok(())
     }
 }
 
