@@ -53,7 +53,7 @@ impl Worker {
 
                     if let Ok((url, depth)) = msg {
                         println!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
-                        let out_links = self.scrape_with_depth(url, self.keep_external_links)?;
+                        let out_links = self.scrape_with_depth(url)?;
 
                         // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
                         // would return an empty vector, so just dont call the function
@@ -88,14 +88,14 @@ impl Worker {
     }
 
     pub fn get_page_content(
+        &self,
         url: impl AsRef<str>,
-        keywords: Option<&Vec<String>>,
     ) -> Result<Option<String>, ScraperError> {
         let mut resp = get(url.as_ref())?;
         let mut content = String::new();
         resp.read_to_string(&mut content)?;
 
-        if let Some(keywords) = keywords {
+        if let Some(keywords) = self.keywords.as_ref() {
             let lower_content = content.to_lowercase();
             if keywords
                 .iter()
@@ -112,7 +112,6 @@ impl Worker {
     pub fn get_anchor_list(
         &self,
         page_content: &str,
-        keep_external_links: bool,
     ) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
@@ -130,7 +129,7 @@ impl Worker {
         let mut anchor_list = Vec::new();
         for anchor in anchors {
             if let Some(href) = anchor.value().attr("href") {
-                if let Some(url) = get_complete_url(href, keep_external_links) {
+                if let Some(url) = get_complete_url(href, self.keep_external_links) {
                     anchor_list.push(url);
                 }
             }
@@ -141,14 +140,13 @@ impl Worker {
     fn scrape_with_depth(
         &self,
         start_url: impl AsRef<str>,
-        keep_external_links: bool,
     ) -> Result<Vec<String>, ScraperError> {
-        let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
+        let Some(page_content)= self.get_page_content(start_url.as_ref())? else {
             println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
 
-        let Ok(anchor_list) = self.get_anchor_list(&page_content, keep_external_links) else {
+        let Ok(anchor_list) = self.get_anchor_list(&page_content) else {
             println!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
             return Ok(vec![]);
         };
