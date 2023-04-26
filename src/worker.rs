@@ -58,19 +58,21 @@ impl Worker {
                 },
                 default => {
                     let mut locked_stopped_threads = self.stopped_threads.lock().unwrap();
+
                     locked_stopped_threads[self.id] = true;
 
                     let stopped_threads_count = locked_stopped_threads.iter().filter(|x| **x).count();
-                    eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", self.id, stopped_threads_count);
                     let nt = locked_stopped_threads.len();
-                    drop(locked_stopped_threads);
 
+                    eprintln!("[Thread {}] {} threads stuck with nothing to do", self.id, stopped_threads_count);
+                    
                     if stopped_threads_count == nt {
                         debug_assert!(self.rx.len() == 0, "Expected rx to be empty, found {} links", self.rx.len());
                         eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
                         break;
                     } else {
                         eprintln!("[Thread {}] Going to sleep for 500ms", self.id);
+                        drop(locked_stopped_threads);
                         thread::sleep(Duration::from_millis(500));
                     }
                 }
@@ -190,8 +192,7 @@ impl Worker {
                 if anchor.starts_with("https://en.wikipedia.org/wiki/") {
                     // And then scrape that page recursively
                     if depth > 1 {
-                        //TODO check if this is correct
-                        //if not already contained in the rx channel or in the map
+                        //if it was not already in the map
                         if !already_visited {
                             self.tx.send((anchor, depth - 1))?;
                         }
