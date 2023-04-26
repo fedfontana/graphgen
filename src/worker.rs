@@ -65,7 +65,7 @@ impl Worker {
                     let nt = locked_stopped_threads.len();
 
                     eprintln!("[Thread {}] {} threads stuck with nothing to do", self.id, stopped_threads_count);
-                    
+
                     if stopped_threads_count == nt {
                         debug_assert!(self.rx.len() == 0, "Expected rx to be empty, found {} links", self.rx.len());
                         eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
@@ -155,12 +155,9 @@ impl Worker {
         let mut own_pages = self.pages.lock().unwrap();
         let mut own_links = self.links.lock().unwrap();
 
-        let mut already_visited = false;
-
         // If the page has already been visited, just add the links to the links set by recovering its id
         // else generate a new id and add it to the pages before proceeding to process the links
         let start_url_id = if let Some(start_url_id) = own_pages.get(start_url.as_ref()) {
-            already_visited = true;
             *start_url_id
         } else {
             let new_id = own_pages.len() as ID;
@@ -169,6 +166,7 @@ impl Worker {
         };
 
         for anchor in anchor_list {
+
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = own_pages.get(&anchor) {
                 own_links.insert((start_url_id, *anchor_id));
@@ -191,11 +189,15 @@ impl Worker {
 
                 if anchor.starts_with("https://en.wikipedia.org/wiki/") {
                     // And then scrape that page recursively
+                    // if it was not already in the map
                     if depth > 1 {
-                        //if it was not already in the map
-                        if !already_visited {
-                            self.tx.send((anchor, depth - 1))?;
-                        }
+                        println!(
+                            "[Thread {}] Adding {} to the queue with depth: {}",
+                            self.id,
+                            anchor,
+                            depth - 1
+                        );
+                        self.tx.send((anchor, depth - 1))?;
                     }
                 }
             }
