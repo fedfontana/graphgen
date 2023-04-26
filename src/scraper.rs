@@ -1,3 +1,5 @@
+use crossbeam_channel::Receiver;
+
 use crate::errors::ScraperError;
 use crate::worker::Worker;
 
@@ -23,7 +25,14 @@ pub struct WikipediaScraper<'a> {
 }
 
 impl<'a> WikipediaScraper<'a> {
-    pub fn new(url: &'a str, depth: u64, num_threads: usize, keywords: Option<Vec<String>>, undirected: bool, keep_external_links: bool) -> WikipediaScraper<'a> {
+    pub fn new(
+        url: &'a str,
+        depth: u64,
+        num_threads: usize,
+        keywords: Option<Vec<String>>,
+        undirected: bool,
+        keep_external_links: bool,
+    ) -> WikipediaScraper<'a> {
         if depth == 0 {
             eprintln!("[WARN] Depth must be greater than 0. Setting it to 1.");
         }
@@ -51,6 +60,28 @@ impl<'a> WikipediaScraper<'a> {
         self.pages.lock().unwrap().len()
     }
 
+    pub fn worker(
+        &self,
+        thread_idx: usize,
+        stopped_threads: Arc<Mutex<Vec<bool>>>,
+        rx: Receiver<(String, u64)>,
+        tx: crossbeam_channel::Sender<(String, u64)>,
+    ) -> Worker {
+        //TODO maybe change to Arc<RwLock>?
+        let stopped_threads = stopped_threads.clone();
+
+        Worker::new(
+            thread_idx,
+            self.links.clone(),
+            self.pages.clone(),
+            self.keywords.clone(),
+            rx,
+            tx,
+            stopped_threads,
+            self.keep_external_links,
+        )
+    }
+
     pub fn scrape(&mut self) -> Result<(), ScraperError> {
         let stopped_threads = Arc::new(Mutex::new(vec![false; self.num_threads]));
         let (tx, rx) = crossbeam_channel::unbounded::<(String, u64)>();
@@ -59,20 +90,9 @@ impl<'a> WikipediaScraper<'a> {
 
         let handles = (0..self.num_threads)
             .map(|thread_idx| {
-                let links = self.links.clone();
-                let pages = self.pages.clone();
-                let keywords = self.keywords.clone();
-                let keep_external_links = self.keep_external_links;
-
-                let tx = tx.clone();
-                let rx = rx.clone();
-
                 let stopped_threads = stopped_threads.clone();
-
-                std::thread::spawn(move || {
-                    let worker = Worker::new(thread_idx, links, pages, keywords);
-                    worker.scrape(rx, tx, stopped_threads, keep_external_links)
-                })
+                let worker = self.worker(thread_idx, stopped_threads, rx.clone(), tx.clone());
+                std::thread::spawn(move || worker.scrape())
             })
             .collect::<Vec<_>>();
 
@@ -100,7 +120,7 @@ impl<'a> WikipediaScraper<'a> {
             for (url, id) in own_pages.iter() {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
-            
+
             for (source, dest) in own_links.iter() {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
@@ -108,7 +128,7 @@ impl<'a> WikipediaScraper<'a> {
             let mut visited_edges = HashSet::new();
             let mut visited_nodes_set = HashSet::new();
             let mut visited_nodes = HashMap::new();
-            
+
             for (source, dest) in own_links.iter() {
                 if own_links.contains(&(*dest, *source)) {
                     visited_edges.insert((source, dest));
@@ -126,7 +146,7 @@ impl<'a> WikipediaScraper<'a> {
             for (id, url) in visited_nodes.iter() {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
-            
+
             for (source, dest) in visited_edges.iter() {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }

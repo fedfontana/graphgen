@@ -16,6 +16,10 @@ pub struct Worker {
     links: Arc<Mutex<HashSet<(ID, ID)>>>,
     pages: Arc<Mutex<HashMap<String, ID>>>,
     keywords: Option<Vec<String>>,
+    rx: Receiver<(String, u64)>,
+    tx: Sender<(String, u64)>,
+    stopped_threads: Arc<Mutex<Vec<bool>>>,
+    keep_external_links: bool,
 }
 
 impl Worker {
@@ -24,55 +28,51 @@ impl Worker {
         links: Arc<Mutex<HashSet<(ID, ID)>>>,
         pages: Arc<Mutex<HashMap<String, ID>>>,
         keywords: Option<Vec<String>>,
+        rx: Receiver<(String, u64)>,
+        tx: Sender<(String, u64)>,
+        stopped_threads: Arc<Mutex<Vec<bool>>>,
+        keep_external_links: bool,
     ) -> Worker {
         Worker {
             id,
             links,
             pages,
             keywords,
+            rx,
+            tx,
+            stopped_threads,
+            keep_external_links,
         }
     }
 
-    pub fn scrape(
-        &self,
-        rx: Receiver<(String, u64)>,
-        tx: Sender<(String, u64)>,
-        stopped_threads: Arc<Mutex<Vec<bool>>>,
-        keep_external_links: bool,
-    ) -> Result<(), ScraperError> {
+    pub fn scrape(&self) -> Result<(), ScraperError> {
         loop {
             select! {
-                recv(rx) -> msg => {
-                    stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
+                recv(self.rx) -> msg => {
+                    self.stopped_threads.lock().unwrap().iter_mut().for_each(|x| *x = false);
 
                     if let Ok((url, depth)) = msg {
                         eprintln!("[Thread {}] Scraping {} with depth: {}", self.id, url, depth);
-                        let out_links = self.scrape_with_depth(url, keep_external_links)?;
-
-                        // If depth were to be equal to 1, then scrape_with_depth with depth = depth-1 = 0
-                        // would return an empty vector, so just dont call the function
-                        if depth > 1 {
-                            out_links.into_iter().for_each(|link| {
-                                tx.send((link, depth - 1)).unwrap();
-                            });
-                        }
+                        self.scrape_with_depth(url, depth)?;
                     }
                 },
                 default => {
-                    let mut locked_stopped_threads = stopped_threads.lock().unwrap();
+                    let mut locked_stopped_threads = self.stopped_threads.lock().unwrap();
+
                     locked_stopped_threads[self.id] = true;
 
                     let stopped_threads_count = locked_stopped_threads.iter().filter(|x| **x).count();
-                    eprintln!("[Thread {}] Nothing to do. Stuck in here with other {} threads", self.id, stopped_threads_count);
                     let nt = locked_stopped_threads.len();
-                    drop(locked_stopped_threads);
+
+                    eprintln!("[Thread {}] {} threads stuck with nothing to do", self.id, stopped_threads_count);
 
                     if stopped_threads_count == nt {
-                        debug_assert!(rx.len() == 0, "Expected rx to be empty, found {} links", rx.len());
+                        debug_assert!(self.rx.len() == 0, "Expected rx to be empty, found {} links", self.rx.len());
                         eprintln!("[Thread {}] All threads have nothing to do. Stopping the current one", self.id);
                         break;
                     } else {
                         eprintln!("[Thread {}] Going to sleep for 500ms", self.id);
+                        drop(locked_stopped_threads);
                         thread::sleep(Duration::from_millis(500));
                     }
                 }
@@ -103,11 +103,7 @@ impl Worker {
         Ok(Some(content))
     }
 
-    pub fn get_anchor_list(
-        &self,
-        page_content: &str,
-        keep_external_links: bool,
-    ) -> Result<Vec<String>, ScraperError> {
+    pub fn get_anchor_list(&self, page_content: &str) -> Result<Vec<String>, ScraperError> {
         let document = scraper::Html::parse_document(page_content);
 
         let content_selector =
@@ -124,7 +120,7 @@ impl Worker {
         let mut anchor_list = Vec::new();
         for anchor in anchors {
             if let Some(href) = anchor.value().attr("href") {
-                if let Some(url) = get_complete_url(href, keep_external_links) {
+                if let Some(url) = get_complete_url(href, self.keep_external_links) {
                     anchor_list.push(url);
                 }
             }
@@ -135,16 +131,16 @@ impl Worker {
     fn scrape_with_depth(
         &self,
         start_url: impl AsRef<str>,
-        keep_external_links: bool,
-    ) -> Result<Vec<String>, ScraperError> {
+        depth: u64,
+    ) -> Result<(), ScraperError> {
         let Some(page_content)= Worker::get_page_content(start_url.as_ref(), self.keywords.as_ref())? else {
             eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
-            return Ok(vec![]);
+            return Ok(());
         };
 
-        let Ok(anchor_list) = self.get_anchor_list(&page_content, keep_external_links) else {
+        let Ok(anchor_list) = self.get_anchor_list(&page_content) else {
             eprintln!("[Thread {}] Skipping {}", self.id, start_url.as_ref());
-            return Ok(vec![]);
+            return Ok(());
         };
 
         if anchor_list.is_empty() {
@@ -153,7 +149,7 @@ impl Worker {
                 self.id,
                 start_url.as_ref()
             );
-            return Ok(vec![]);
+            return Ok(());
         }
 
         let mut own_pages = self.pages.lock().unwrap();
@@ -169,9 +165,8 @@ impl Worker {
             new_id
         };
 
-        let mut out_links = Vec::new();
-
         for anchor in anchor_list {
+
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = own_pages.get(&anchor) {
                 own_links.insert((start_url_id, *anchor_id));
@@ -194,12 +189,21 @@ impl Worker {
 
                 if anchor.starts_with("https://en.wikipedia.org/wiki/") {
                     // And then scrape that page recursively
-                    out_links.push(anchor);
+                    // if it was not already in the map
+                    if depth > 1 {
+                        println!(
+                            "[Thread {}] Adding {} to the queue with depth: {}",
+                            self.id,
+                            anchor,
+                            depth - 1
+                        );
+                        self.tx.send((anchor, depth - 1))?;
+                    }
                 }
             }
         }
 
-        Ok(out_links)
+        Ok(())
     }
 }
 
