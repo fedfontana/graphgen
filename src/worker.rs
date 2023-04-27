@@ -166,7 +166,6 @@ impl Worker {
         };
 
         for anchor in anchor_list {
-
             // If the link has already been visited, just add the current link to the links set
             if let Some(anchor_id) = own_pages.get(&anchor) {
                 own_links.insert((start_url_id, *anchor_id));
