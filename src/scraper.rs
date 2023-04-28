@@ -125,9 +125,8 @@ impl<'a> WikipediaScraper<'a> {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
         } else {
-            
-            //TODO: FIX this somehow generates undirected graphs that are not completely connected
-
+            //TODO: FIX: this somehow generates undirected graphs that are not completely connected
+            //TODO: FIX: the script doesn't check that the keywords are present in the last pages linked at the edges of the graph
             let mut visited_edges = HashSet::new();
             let mut visited_pages_set = HashSet::new();
             let mut visited_pages = HashMap::new();
@@ -136,7 +135,9 @@ impl<'a> WikipediaScraper<'a> {
                 // If the edge (a,b) has already been inserted, then do not check for (b,a)
                 // since we do not want to add duplicate edges
                 //TODO only one of these calls to `contains` is necessary
-                if visited_edges.contains(&(source, dest)) || visited_edges.contains(&(dest, source)) {
+                if visited_edges.contains(&(source, dest))
+                    || visited_edges.contains(&(dest, source))
+                {
                     continue;
                 }
                 if own_links.contains(&(*dest, *source)) {
