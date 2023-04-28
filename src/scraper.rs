@@ -126,24 +126,30 @@ impl<'a> WikipediaScraper<'a> {
             }
         } else {
             let mut visited_edges = HashSet::new();
-            let mut visited_nodes_set = HashSet::new();
-            let mut visited_nodes = HashMap::new();
+            let mut visited_pages_set = HashSet::new();
+            let mut visited_pages = HashMap::new();
 
             for (source, dest) in own_links.iter() {
+                // If the edge (a,b) has already been inserted, then do not check for (b,a)
+                // since we do not want to add duplicate edges
+                //TODO only one of these calls to `contains` is necessary
+                if visited_edges.contains(&(source, dest)) || visited_edges.contains(&(dest, source)) {
+                    continue;
+                }
                 if own_links.contains(&(*dest, *source)) {
                     visited_edges.insert((source, dest));
-                    visited_nodes_set.insert(source);
-                    visited_nodes_set.insert(dest);
+                    visited_pages_set.insert(source);
+                    visited_pages_set.insert(dest);
                 }
             }
 
             for (url, id) in own_pages.iter() {
-                if visited_nodes_set.contains(id) {
-                    visited_nodes.insert(id, url);
+                if visited_pages_set.contains(id) {
+                    visited_pages.insert(id, url);
                 }
             }
 
-            for (id, url) in visited_nodes.iter() {
+            for (id, url) in visited_pages.iter() {
                 nodes_file.write_all(format!("{},\"{}\"\n", id, url).as_bytes())?;
             }
 
