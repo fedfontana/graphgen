@@ -125,6 +125,9 @@ impl<'a> WikipediaScraper<'a> {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
         } else {
+            
+            //TODO: FIX this somehow generates undirected graphs that are not completely connected
+
             let mut visited_edges = HashSet::new();
             let mut visited_pages_set = HashSet::new();
             let mut visited_pages = HashMap::new();
