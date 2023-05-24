@@ -11,8 +11,6 @@ use std::{
 
 pub type ID = u64;
 
-//TODO not all errors should stop the whole program
-
 pub struct WikipediaScraper<'a> {
     url: &'a str,
     depth: u64,
@@ -67,7 +65,6 @@ impl<'a> WikipediaScraper<'a> {
         rx: Receiver<(String, u64)>,
         tx: crossbeam_channel::Sender<(String, u64)>,
     ) -> Worker {
-        //TODO maybe change to Arc<RwLock>?
         let stopped_threads = stopped_threads.clone();
 
         Worker::new(
@@ -125,8 +122,6 @@ impl<'a> WikipediaScraper<'a> {
                 edges_file.write_all(format!("{},{}\n", source, dest).as_bytes())?;
             }
         } else {
-            //TODO: FIX: this somehow generates undirected graphs that are not completely connected
-            //TODO: FIX: the script doesn't check that the keywords are present in the last pages linked at the edges of the graph
             let mut visited_edges = HashSet::new();
             let mut visited_pages_set = HashSet::new();
             let mut visited_pages = HashMap::new();
@@ -134,7 +129,6 @@ impl<'a> WikipediaScraper<'a> {
             for (source, dest) in own_links.iter() {
                 // If the edge (a,b) has already been inserted, then do not check for (b,a)
                 // since we do not want to add duplicate edges
-                //TODO only one of these calls to `contains` is necessary
                 if visited_edges.contains(&(source, dest))
                     || visited_edges.contains(&(dest, source))
                 {

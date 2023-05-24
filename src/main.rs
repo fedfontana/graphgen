@@ -38,10 +38,6 @@ struct Args {
     #[clap(long, default_value_t = false)]
     keep_external_links: bool,
 }
-
-//TODO da copilot per undirected:
-// If this is set to true, the script will only save the edges where the source is smaller than the target
-
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
